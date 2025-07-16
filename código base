@@ -1,0 +1,220 @@
+import React, { useState, useEffect, useMemo } from 'react';
+
+// Componente principal de la aplicación
+const App = () => {
+    // Estado para almacenar el texto de la oferta laboral
+    const [jobDescription, setJobDescription] = useState('');
+    // Estado para almacenar los CVs cargados (nombre del archivo y contenido de texto)
+    const [cvs, setCvs] = useState([]);
+    // Estado para almacenar los resultados clasificados
+    const [classifiedCvs, setClassifiedCvs] = useState([]);
+    // Estado para mensajes de error o información al usuario
+    const [message, setMessage] = useState('');
+
+    // Función para limpiar y tokenizar el texto
+    // Convierte el texto a minúsculas, elimina puntuación y lo divide en palabras.
+    const cleanAndTokenize = (text) => {
+        return text
+            .toLowerCase()
+            .replace(/[.,/#!$%^&*;:{}=\-_`~()]/g, '') // Elimina puntuación común
+            .replace(/\s{2,}/g, ' ') // Reemplaza múltiples espacios con uno solo
+            .split(/\s+/) // Divide por espacios
+            .filter(word => word.length > 1); // Filtra palabras muy cortas (ej. "a", "el")
+    };
+
+    // Función para calcular la similitud entre dos textos
+    // Utiliza una métrica de superposición de palabras clave.
+    const calculateSimilarity = useMemo(() => (text1, text2) => {
+        if (!text1 || !text2) return 0;
+
+        const tokens1 = new Set(cleanAndTokenize(text1));
+        const tokens2 = new Set(cleanAndTokenize(text2));
+
+        // Encuentra la intersección de las palabras (palabras comunes)
+        let commonWordsCount = 0;
+        for (const token of tokens1) {
+            if (tokens2.has(token)) {
+                commonWordsCount++;
+            }
+        }
+
+        // Calcula la similitud como el porcentaje de palabras comunes
+        // respecto al total de palabras únicas en la oferta laboral.
+        // Esto da una puntuación de 0 a 1.
+        const similarity = tokens1.size > 0 ? (commonWordsCount / tokens1.size) : 0;
+        return parseFloat(similarity.toFixed(2)); // Redondea a 2 decimales
+    }, []); // Dependencias vacías para memoizar la función
+
+    // Efecto que se ejecuta cuando cambian los CVs o la descripción de la oferta
+    useEffect(() => {
+        if (jobDescription.trim() === '' || cvs.length === 0) {
+            setClassifiedCvs([]);
+            setMessage('Sube CVs y/o ingresa una oferta laboral para ver los resultados.');
+            return;
+        }
+
+        setMessage('Procesando CVs...');
+        try {
+            // Calcula la similitud para cada CV
+            const results = cvs.map(cv => ({
+                name: cv.name,
+                content: cv.content,
+                // Calcula la similitud del CV con la descripción de la oferta
+                similarity: calculateSimilarity(jobDescription, cv.content)
+            }));
+
+            // Ordena los CVs de mayor a menor similitud
+            results.sort((a, b) => b.similarity - a.similarity);
+            setClassifiedCvs(results);
+            setMessage('Clasificación completada.');
+        } catch (error) {
+            console.error("Error al procesar los CVs:", error);
+            setMessage('Ocurrió un error al procesar los CVs.');
+        }
+    }, [cvs, jobDescription, calculateSimilarity]);
+
+    // Maneja la carga de archivos CV
+    const handleFileChange = async (event) => {
+        const files = Array.from(event.target.files);
+        if (files.length === 0) {
+            setCvs([]);
+            return;
+        }
+
+        if (files.length > 20) {
+            setMessage('Por favor, sube un máximo de 20 CVs.');
+            return;
+        }
+
+        setMessage('Cargando CVs...');
+        const loadedCvs = [];
+        for (const file of files) {
+            if (file.type === 'text/plain') {
+                try {
+                    const text = await file.text();
+                    loadedCvs.push({
+                        name: file.name,
+                        content: text
+                    });
+                } catch (error) {
+                    console.error(Error al leer el archivo ${file.name}:, error);
+                    setMessage(No se pudo leer el archivo ${file.name}. Asegúrate de que sea un archivo de texto válido.);
+                }
+            } else if (file.type === 'application/pdf') {
+                // Placeholder para PDF. En una aplicación real, enviarías esto a un backend para su análisis.
+                setMessage(Se cargó el archivo PDF "${file.name}". Para una extracción de texto completa y robusta de PDFs, se recomienda una solución de backend. En esta demostración, el contenido de PDFs no se extrae automáticamente. Por favor, pega el texto relevante en el campo de la oferta laboral si deseas que se considere.);
+                loadedCvs.push({
+                    name: file.name + " (PDF - extracción manual necesaria)",
+                    content: "Este es un archivo PDF. Su contenido no se extrajo automáticamente en esta demostración. Para que sea clasificado, por favor, copia y pega el texto relevante en el campo de la oferta laboral."
+                });
+            } else {
+                setMessage(Tipo de archivo no soportado para "${file.name}". Por favor, sube archivos .txt o .pdf.);
+            }
+        }
+        setCvs(loadedCvs);
+        if (loadedCvs.length > 0) {
+            setMessage(${loadedCvs.length} CV(s) cargado(s).);
+        } else {
+            setMessage('No se cargaron CVs válidos.');
+        }
+    };
+
+    // Maneja el cambio en la descripción de la oferta laboral
+    const handleJobDescriptionChange = (event) => {
+        setJobDescription(event.target.value);
+    };
+
+    return (
+        <div className="min-h-screen bg-gray-100 flex flex-col items-center p-4 font-inter">
+            <style>
+                {`
+                @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+                body {
+                    font-family: 'Inter', sans-serif;
+                }
+                `}
+            </style>
+
+            <div className="bg-white p-8 rounded-xl shadow-lg w-full max-w-4xl mb-8">
+                <h1 className="text-3xl font-bold text-gray-800 mb-6 text-center">Clasificador de CVs</h1>
+
+                {/* Sección de carga de CVs */}
+                <div className="mb-6">
+                    <label htmlFor="cv-upload" className="block text-gray-700 text-lg font-semibold mb-2">
+                        1. Sube CVs (archivos de texto o PDF):
+                    </label>
+                    <input
+                        type="file"
+                        id="cv-upload"
+                        accept=".txt,.pdf" // Ahora acepta .txt y .pdf
+                        multiple
+                        onChange={handleFileChange}
+                        className="block w-full text-sm text-gray-500
+                                   file:mr-4 file:py-2 file:px-4
+                                   file:rounded-full file:border-0
+                                   file:text-sm file:font-semibold
+                                   file:bg-blue-50 file:text-blue-700
+                                   hover:file:bg-blue-100 cursor-pointer rounded-lg"
+                    />
+                    <p className="text-sm text-gray-500 mt-2">
+                        *Nota: Esta versión soporta archivos de texto (.txt) y permite la carga de PDFs. Para PDFs, la extracción de texto completa y robusta suele requerir un procesamiento en el servidor. En esta demostración del lado del cliente, te recomendamos copiar y pegar el texto del PDF directamente en el campo de la oferta laboral para una clasificación precisa, o considerar esta funcionalidad como un marcador de posición para una futura integración con un backend. Sube entre 5 y 20 archivos.
+                    </p>
+                </div>
+
+                {/* Sección de ingreso de oferta laboral */}
+                <div className="mb-6">
+                    <label htmlFor="job-description" className="block text-gray-700 text-lg font-semibold mb-2">
+                        2. Ingresa la descripción de la oferta laboral:
+                    </label>
+                    <textarea
+                        id="job-description"
+                        className="w-full p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 resize-y min-h-[150px]"
+                        placeholder="Pega aquí la descripción completa de la oferta laboral..."
+                        value={jobDescription}
+                        onChange={handleJobDescriptionChange}
+                    ></textarea>
+                </div>
+
+                {/* Mensajes de estado */}
+                {message && (
+                    <div className="bg-blue-100 border border-blue-400 text-blue-700 px-4 py-3 rounded-lg relative mb-6" role="alert">
+                        <span className="block sm:inline">{message}</span>
+                    </div>
+                )}
+            </div>
+
+            {/* Sección de resultados */}
+            {classifiedCvs.length > 0 && (
+                <div className="bg-white p-8 rounded-xl shadow-lg w-full max-w-4xl">
+                    <h2 className="text-2xl font-bold text-gray-800 mb-6 text-center">Resultados de Clasificación</h2>
+                    <ul className="space-y-4">
+                        {classifiedCvs.map((cv, index) => (
+                            <li key={index} className="bg-gray-50 p-4 rounded-lg border border-gray-200 shadow-sm flex flex-col md:flex-row md:items-center md:justify-between">
+                                <div className="flex-1 mb-2 md:mb-0">
+                                    <h3 className="text-xl font-semibold text-gray-800">{cv.name}</h3>
+                                    <p className="text-gray-600 text-sm mt-1">
+                                        Puntaje de Similitud: <span className="font-bold text-blue-600">{cv.similarity * 100}%</span>
+                                    </p>
+                                    <p className="text-gray-500 text-sm italic mt-2 line-clamp-3">
+                                        {/* Muestra un breve resumen del CV */}
+                                        {cv.content.substring(0, 200)}...
+                                    </p>
+                                </div>
+                                <div className="md:ml-4 flex-shrink-0">
+                                    <button
+                                        onClick={() => alert(Contenido completo de ${cv.name}:\n\n${cv.content})} // Usar un modal real en una app de producción
+                                        className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-full transition duration-300 ease-in-out transform hover:scale-105 shadow-md"
+                                    >
+                                        Ver CV Completo
+                                    </button>
+                                </div>
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            )}
+        </div>
+    );
+};
+
+export default App;
